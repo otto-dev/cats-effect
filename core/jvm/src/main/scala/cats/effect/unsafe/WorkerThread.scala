@@ -18,6 +18,7 @@ package cats.effect
 package unsafe
 
 import scala.annotation.switch
+import scala.collection.mutable.PriorityQueue
 import scala.concurrent.{BlockContext, CanAwait}
 
 import java.util.concurrent.ThreadLocalRandom
@@ -82,6 +83,10 @@ private final class WorkerThread(
    */
   private[this] var cedeBypass: IOFiber[_] = null
 
+  private[this] val sleepCallbacks: PriorityQueue[SleepCallback] = PriorityQueue.empty
+
+  private[this] var sleepingCount: Int = 0
+
   // Constructor code.
   {
     // Worker threads are daemon threads.
@@ -131,6 +136,7 @@ private final class WorkerThread(
   override def run(): Unit = {
     random = ThreadLocalRandom.current()
     val rnd = random
+    val sleepers = sleepCallbacks
 
     /*
      * A counter (modulo `OverflowQueueTicks`) which represents the
@@ -218,11 +224,18 @@ private final class WorkerThread(
      */
     var state = 0
 
-    def parkLoop(): Unit = {
+    def parkLoop(sleepers: PriorityQueue[SleepCallback]): Unit = {
       var cont = true
       while (cont && !isInterrupted()) {
         // Park the thread until further notice.
-        LockSupport.park(pool)
+        if (sleepingCount > 0) {
+          val now = System.nanoTime()
+          val head = sleepers.head
+          val nanos = head.triggerTime - now
+          LockSupport.parkNanos(pool, nanos)
+        } else {
+          LockSupport.park(pool)
+        }
 
         // Spurious wakeup check.
         cont = parked.get()
@@ -230,6 +243,23 @@ private final class WorkerThread(
     }
 
     while (!isInterrupted()) {
+      if (sleepingCount > 0) {
+        val now = System.nanoTime()
+        var cont = true
+        while (cont) {
+          val head = sleepers.head
+
+          if (head.triggerTime - now <= 0) {
+            sleepers.dequeue()
+            sleepingCount -= 1
+            head.callback.run()
+            cont = sleepingCount > 0
+          } else {
+            cont = false
+          }
+        }
+      }
+
       ((state & OverflowQueueTicksMask): @switch) match {
         case 0 =>
           // Dequeue a fiber from the overflow queue.
@@ -289,7 +319,7 @@ private final class WorkerThread(
             // Announce that the worker thread is parking.
             pool.transitionWorkerToParked()
             // Park the thread.
-            parkLoop()
+            parkLoop(sleepers)
             // After the worker thread has been unparked, look for work in the
             // batched queue.
             state = 5
@@ -321,7 +351,7 @@ private final class WorkerThread(
               pool.notifyIfWorkPending(rnd)
             }
             // Park the thread.
-            parkLoop()
+            parkLoop(sleepers)
             // After the worker thread has been unparked, look for work in the
             // batched queue.
             state = 5

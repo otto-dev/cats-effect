@@ -20,6 +20,7 @@ package unsafe
 import scala.annotation.switch
 import scala.collection.mutable.PriorityQueue
 import scala.concurrent.{BlockContext, CanAwait}
+import scala.concurrent.duration.FiniteDuration
 
 import java.util.concurrent.ThreadLocalRandom
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicInteger}
@@ -128,6 +129,13 @@ private final class WorkerThread(
     } else {
       schedule(fiber)
     }
+  }
+
+  def sleep(delay: FiniteDuration, callback: Runnable): Unit = {
+    val sleepers = sleepCallbacks
+    val scb = SleepCallback(delay, callback, sleepers)
+    sleepers += scb
+    sleepingCount += 1
   }
 
   /**

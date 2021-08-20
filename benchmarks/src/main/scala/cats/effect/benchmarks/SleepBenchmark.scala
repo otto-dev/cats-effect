@@ -20,11 +20,9 @@ import cats.effect.IO
 import cats.effect.unsafe._
 import cats.syntax.all._
 
-import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
-import java.util.concurrent.{Executors, TimeUnit}
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.TimeUnit
 import org.openjdk.jmh.annotations._
 
 /**

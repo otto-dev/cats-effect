@@ -240,7 +240,10 @@ private final class WorkerThread(
           val now = System.nanoTime()
           val head = sleepers.head
           val nanos = head.triggerTime - now
-          LockSupport.parkNanos(pool, nanos)
+          LockSupport.parkNanos(pool, nanos + 1L)
+          parked.lazySet(false)
+          pool.selfUnpark()
+          return
         } else {
           LockSupport.park(pool)
         }
@@ -260,6 +263,8 @@ private final class WorkerThread(
           if (head.triggerTime - now <= 0) {
             sleepers.dequeue()
             sleepingCount -= 1
+            println(sleepers)
+            println(s"$sleepingCount")
             head.callback.run()
             cont = sleepingCount > 0
           } else {

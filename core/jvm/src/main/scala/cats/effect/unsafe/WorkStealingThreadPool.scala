@@ -223,6 +223,11 @@ private[effect] final class WorkStealingThreadPool(
     false
   }
 
+  private[unsafe] def selfUnpark(): Unit = {
+    state.getAndAdd(DeltaSearching)
+    ()
+  }
+
   /**
    * Checks the number of active and searching worker threads and decides
    * whether another thread should be notified of new work.

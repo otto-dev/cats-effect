@@ -20,7 +20,12 @@ import scala.collection.mutable.PriorityQueue
 import scala.concurrent.duration.FiniteDuration
 import scala.math.Ordering
 
-private final case class SleepCallback private (triggerTime: Long, callback: Runnable)
+import java.util.concurrent.atomic.AtomicBoolean
+
+private final case class SleepCallback private (triggerTime: Long, callback: Runnable) extends AtomicBoolean(false) {
+  override def toString: String =
+    s"SleepCallback(triggerTime = ${triggerTime - System.nanoTime()}, callback = $callback)"
+}
 
 private object SleepCallback {
 

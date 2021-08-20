@@ -131,11 +131,12 @@ private final class WorkerThread(
     }
   }
 
-  def sleep(delay: FiniteDuration, callback: Runnable): Unit = {
+  def sleep(delay: FiniteDuration, callback: Runnable): Runnable = {
     val sleepers = sleepCallbacks
     val scb = SleepCallback(delay, callback, sleepers)
     sleepers += scb
     sleepingCount += 1
+    () => scb.lazySet(true)
   }
 
   /**
@@ -240,7 +241,7 @@ private final class WorkerThread(
           val now = System.nanoTime()
           val head = sleepers.head
           val nanos = head.triggerTime - now
-          LockSupport.parkNanos(pool, nanos + 1L)
+          LockSupport.parkNanos(pool, nanos)
           parked.lazySet(false)
           pool.selfUnpark()
           return
@@ -260,11 +261,13 @@ private final class WorkerThread(
         while (cont) {
           val head = sleepers.head
 
-          if (head.triggerTime - now <= 0) {
+          if (head.get()) {
             sleepers.dequeue()
             sleepingCount -= 1
-            println(sleepers)
-            println(s"$sleepingCount")
+            cont = sleepingCount > 0
+          } else if (head.triggerTime - now <= 0) {
+            sleepers.dequeue()
+            sleepingCount -= 1
             head.callback.run()
             cont = sleepingCount > 0
           } else {

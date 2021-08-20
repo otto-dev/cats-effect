@@ -408,7 +408,6 @@ private[effect] final class WorkStealingThreadPool(
     val thread = Thread.currentThread()
     if (thread.isInstanceOf[WorkerThread]) {
       thread.asInstanceOf[WorkerThread].sleep(delay, task)
-      () => ()
     } else {
       fallback.sleep(delay, task)
     }

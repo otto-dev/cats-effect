@@ -11,7 +11,7 @@ on:
   pull_request:
     branches: [series/3.x]
   push:
-    branches: [series/3.x]
+    branches: [series/3.x, blocking-scheduling]
 
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -120,10 +120,6 @@ jobs:
         if: matrix.ci == 'ciJS' || matrix.ci == 'ciJSDOMNodeJS'
         shell: bash
         run: npm install
-
-      - name: Check that workflows are up to date
-        shell: bash
-        run: sbt ++${{ matrix.scala }} githubWorkflowCheck
 
       - shell: bash
         run: sbt ++${{ matrix.scala }} '${{ matrix.ci }}'

@@ -248,19 +248,14 @@ private final class IOFiber[A](
 
           pushTracingEvent(cur.event)
 
-          var error: Throwable = null
-          val r =
-            try cur.thunk()
+          val next =
+            try succeeded(cur.thunk(), 0)
             catch {
               case NonFatal(t) =>
-                error = t
+                failed(t, 0)
               case t: Throwable =>
                 onFatalFailure(t)
             }
-
-          val next =
-            if (error == null) succeeded(r, 0)
-            else failed(error, 0)
 
           runLoop(next, nextCancelation, nextAutoCede)
 
@@ -291,17 +286,13 @@ private final class IOFiber[A](
           val f = cur.f
 
           def next(v: Any): IO[Any] = {
-            var error: Throwable = null
-            val result =
-              try f(v)
-              catch {
-                case NonFatal(t) =>
-                  error = t
-                case t: Throwable =>
-                  onFatalFailure(t)
-              }
-
-            if (error == null) succeeded(result, 0) else failed(error, 0)
+            try succeeded(f(v), 0)
+            catch {
+              case NonFatal(t) =>
+                failed(t, 0)
+              case t: Throwable =>
+                onFatalFailure(t)
+            }
           }
 
           (ioe.tag: @switch) match {
@@ -319,18 +310,16 @@ private final class IOFiber[A](
               pushTracingEvent(delay.event)
 
               // this code is inlined in order to avoid two `try` blocks
-              var error: Throwable = null
-              val result =
-                try f(delay.thunk())
+              val next =
+                try succeeded(f(delay.thunk()), 0)
                 catch {
                   case NonFatal(t) =>
-                    error = t
+                    failed(t, 0)
                   case t: Throwable =>
                     onFatalFailure(t)
                 }
 
-              val nextIO = if (error == null) succeeded(result, 0) else failed(error, 0)
-              runLoop(nextIO, nextCancelation - 1, nextAutoCede)
+              runLoop(next, nextCancelation - 1, nextAutoCede)
 
             case 3 =>
               val realTime = runtime.scheduler.nowMillis().millis
@@ -443,9 +432,8 @@ private final class IOFiber[A](
               pushTracingEvent(delay.event)
 
               // this code is inlined in order to avoid two `try` blocks
-              var error: Throwable = null
-              val result =
-                try delay.thunk()
+              val next =
+                try succeeded(Right(delay.thunk()), 0)
                 catch {
                   case NonFatal(t) =>
                     // We need to augment the exception here because it doesn't
@@ -454,13 +442,11 @@ private final class IOFiber[A](
                       runtime.config.enhancedExceptions,
                       t,
                       tracingEvents)
-                    error = t
+                    succeeded(Left(t), 0)
                   case t: Throwable =>
                     onFatalFailure(t)
                 }
 
-              val next =
-                if (error == null) succeeded(Right(result), 0) else succeeded(Left(error), 0)
               runLoop(next, nextCancelation - 1, nextAutoCede)
 
             case 3 =>
@@ -1278,25 +1264,21 @@ private final class IOFiber[A](
   }
 
   private[this] def blockingR(): Unit = {
-    var error: Throwable = null
     val cur = resumeIO.asInstanceOf[Blocking[Any]]
     resumeIO = null
-    val r =
-      try cur.thunk()
-      catch {
-        case NonFatal(t) =>
-          error = t
-        case t: Throwable =>
-          onFatalFailure(t)
-      }
 
-    if (error == null) {
+    try {
+      val res = cur.thunk()
       resumeTag = AsyncContinueSuccessfulR
-      objectState.push(r.asInstanceOf[AnyRef])
-    } else {
-      resumeTag = AsyncContinueFailedR
-      objectState.push(error)
+      objectState.push(res.asInstanceOf[AnyRef])
+    } catch {
+      case NonFatal(t) =>
+        resumeTag = AsyncContinueFailedR
+        objectState.push(t)
+      case t: Throwable =>
+        onFatalFailure(t)
     }
+
     val ec = currentCtx
     scheduleFiber(ec, this)
   }

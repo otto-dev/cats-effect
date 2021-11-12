@@ -21,12 +21,13 @@ import scala.util.hashing.MurmurHash3
 @State(Scope.Thread)
 @BenchmarkMode(Array(Mode.Throughput))
 @OutputTimeUnit(TimeUnit.MINUTES)
-class FairnessBenchmark {
+class ThroughputBenchmark {
+  // computation heaviness
   @Param(Array("100"))
   var size: Int = _
 
+  val elementCount = 100
   val parallelism = 10
-  val computations = 10000
 
   @Benchmark
   def scheduling(blackhole: Blackhole): Unit = {
@@ -34,29 +35,22 @@ class FairnessBenchmark {
     val io = for {
       request <- Queue.unbounded[IO, Int]
       response <- Queue.unbounded[IO, Seq[Int]]
-      unfairness <- createUnfairness
-      source <- (0 until size)
-        .map(i => IO.blocking(() /* simulate external source */ ) >> request.offer(i))
-        .toList
-        .sequence
-        .start // data source
+      source <- (0 until elementCount)
+          .map(i => IO.blocking(() /* simulate external source */ ) >> request.offer(i))
+          .toList
+          .sequence
+          .start // data source
       _ <- response
-        .take
-        .map(v => IO.blocking(blackhole.consume(v) /* simulate output consumer */ ))
-        .void
-        .foreverM
-        .start // output drain
+          .take
+          .map(v => IO.blocking(blackhole.consume(v) /* simulate output consumer */ ))
+          .void
+          .foreverM
+          .start // output drain
       _ <- processNextRequest(request, response)(1)
       _ <- source.join
-      _ <- unfairness.traverse(_.cancel)
     } yield ()
     io.unsafeRunSync()
   }
-
-  def createUnfairness: IO[List[FiberIO[Nothing]]] =
-    (0 until (Runtime.getRuntime().availableProcessors() * 2))
-      .toList
-      .traverse(x => murmurMe(0)(x).foreverM.start)
 
   def processNextRequest(inputs: Queue[IO, Int], outputs: Queue[IO, Seq[Int]])(
       iteration: Int): IO[Unit] = for {
@@ -64,13 +58,13 @@ class FairnessBenchmark {
     result <- (0 until parallelism).toList.parTraverse(_ => murmurMe(0)(element))
     _ <- outputs.offer(result)
     _ <-
-      if (iteration < size)
-        IO.cede >> processNextRequest(inputs, outputs)(iteration + 1)
-      else IO.unit
+        if (iteration < elementCount)
+          IO.cede >> processNextRequest(inputs, outputs)(iteration + 1)
+        else IO.unit
   } yield ()
 
   private def murmurMe(i: Int)(x: Int): IO[Int] = {
-    if (i == computations) IO.pure(x)
+    if (i == size) IO.pure(x)
     else IO.cede >> IO.defer(murmurMe(i + 1)(MurmurHash3.stringHash(s"$x,$i")))
   }
 }
